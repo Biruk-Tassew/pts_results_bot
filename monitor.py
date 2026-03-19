@@ -75,6 +75,9 @@ def main():
     if not GIST_ID or not PAT_GITHUB:
         raise ValueError("Set GIST_ID and PAT_GITHUB")
 
+    # Notify every run (for testing)
+    send_telegram_message("Monitor script is running ✅")
+    
     html = fetch_page()
     content = extract_relevant_content(html)
     current_hash = compute_hash(content)
