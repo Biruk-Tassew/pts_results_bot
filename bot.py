@@ -8,8 +8,8 @@ from datetime import datetime, UTC
 URL = "https://corporate.ethiopianairlines.com/AboutEthiopian/careers/results"
 STATE_FILE = "ethiopian_results_state.json"
 
-BOT_TOKEN = "8771537045:AAFoqzIqCnIhYULK7Fv5TlWIvriRIzoFXeI"
-CHAT_ID = "426450306"
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 
 def send_telegram_message(text: str):
