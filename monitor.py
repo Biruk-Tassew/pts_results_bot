@@ -1,12 +1,14 @@
 import os
-import json
-import hashlib
 import requests
+import hashlib
 from bs4 import BeautifulSoup
 from datetime import datetime, UTC
 
 URL = "https://corporate.ethiopianairlines.com/AboutEthiopian/careers/results"
-STATE_FILE = "ethiopian_results_state.json"
+
+# GitHub Gist info
+GIST_ID = os.getenv("GIST_ID")  # create empty gist first
+PAT_GITHUB = os.getenv("PAT_GITHUB")
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
@@ -30,74 +32,60 @@ def fetch_page():
 
 def extract_relevant_content(html: str):
     soup = BeautifulSoup(html, "html.parser")
-
     text = soup.get_text("\n", strip=True)
-
     start_marker = "Result Announcements"
     if start_marker in text:
         text = text[text.index(start_marker):]
-
     lines = [line.strip() for line in text.splitlines() if line.strip()]
-
-    cleaned = []
-    for line in lines:
-        if len(line) < 2:
-            continue
-        cleaned.append(line)
-
-    final_text = "\n".join(cleaned)
-    return final_text
+    cleaned = [line for line in lines if len(line) > 1]
+    return "\n".join(cleaned)
 
 
 def compute_hash(content: str):
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
 
-def load_previous_state():
-    if not os.path.exists(STATE_FILE):
-        return None
-    with open(STATE_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+def load_previous_hash():
+    headers = {"Authorization": f"token {PAT_GITHUB}"}
+    url = f"https://api.github.com/gists/{GIST_ID}"
+    r = requests.get(url, headers=headers, timeout=30)
+    r.raise_for_status()
+    gist = r.json()
+    content = gist["files"]["state.json"]["content"]
+    return content.strip() if content else None
 
 
-def save_state(content: str, content_hash: str):
-    with open(STATE_FILE, "w", encoding="utf-8") as f:
-        json.dump({
-            "hash": content_hash,
-            "content": content,
-            "checked_at": datetime.now(UTC).isoformat()
-        }, f, ensure_ascii=False, indent=2)
+def save_current_hash(current_hash: str):
+    headers = {"Authorization": f"token {PAT_GITHUB}"}
+    url = f"https://api.github.com/gists/{GIST_ID}"
+    data = {
+        "files": {
+            "state.json": {
+                "content": current_hash
+            }
+        }
+    }
+    r = requests.patch(url, headers=headers, json=data, timeout=30)
+    r.raise_for_status()
 
 
 def main():
     if not BOT_TOKEN or not CHAT_ID:
-        raise ValueError("Please set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID environment variables.")
+        raise ValueError("Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID")
+    if not GIST_ID or not PAT_GITHUB:
+        raise ValueError("Set GIST_ID and PAT_GITHUB")
 
     html = fetch_page()
-    current_content = extract_relevant_content(html)
-    current_hash = compute_hash(current_content)
+    content = extract_relevant_content(html)
+    current_hash = compute_hash(content)
 
-    previous = load_previous_state()
+    previous_hash = load_previous_hash()
 
-    if previous is None:
-        save_state(current_content, current_hash)
+    if previous_hash != current_hash:
         send_telegram_message(
-            "Ethiopian Airlines results monitor is now active.\n"
-            f"Watching: {URL}"
+            f"Ethiopian Airlines results page changed!\n{URL}"
         )
-        return
-
-    if previous["hash"] != current_hash:
-        old_content = previous.get("content", "")
-
-        message = (
-            "Change detected on Ethiopian Airlines results page.\n"
-            f"{URL}\n\n"
-            "The page content has changed. Please check the website."
-        )
-
-        send_telegram_message(message)
-        save_state(current_content, current_hash)
+        save_current_hash(current_hash)
     else:
         print("No change detected.")
 
